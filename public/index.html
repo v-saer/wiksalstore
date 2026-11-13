@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="km">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>wiksalstore</title>
+  <meta name="description" content="Get Telegram Premium quickly and safely. Pay with ABA.">
+  <meta name="theme-color" content="#0b1020">
+  <link rel="icon" href="/img/logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Khmer:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="bg" aria-hidden="true">
+    <span class="orb o1"></span><span class="orb o2"></span><span class="orb o3"></span>
+    <span class="grid"></span>
+  </div>
+
+  <header class="top">
+    <a class="brand" href="#" aria-label="WIKSALSTORE home">
+      <span class="logo"><img src="/img/logo.png" width="64" height="64" alt=""></span>
+      <span class="brand-text">WIKSAL<b> STORE</b></span>
+    </a>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Services" data-i18n-aria="services">
+      <span class="tab-ind" id="tabInd"></span>
+      <button class="tab active" role="tab" data-tab="telegram" aria-selected="true">
+        <img src="/img/premium.gif" alt="">
+        <span>Telegram Premium</span>
+      </button>
+    </nav>
+    <div class="lang-switch" role="group" aria-label="Choose language" data-i18n-aria="chooseLanguage">
+      <button type="button" data-language="km" aria-pressed="true">ខ្មែរ</button>
+      <button type="button" data-language="en" aria-pressed="false">EN</button>
+    </div>
+    <a class="support-btn" id="supportTop" href="https://t.me/nhsalnghahh" target="_blank" rel="noopener" aria-label="Telegram support" data-i18n-aria="support">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.7 3.2 18.5 20c-.2 1.2-.9 1.5-1.9.9l-5.2-3.8-2.5 2.4c-.3.3-.5.5-1 .5l.4-5.1 9.8-8.9c.4-.4-.1-.6-.6-.2L5.4 13.3l-5-1.6c-1.1-.3-1.1-1.1.2-1.6l19.5-7.5c.9-.3 1.7.2 1.6.6z" fill="currentColor"/></svg>
+      <span data-i18n="support">Support 24/7</span>
+    </a>
+  </header>
+
+  <main>
+    <!-- TELEGRAM -->
+    <section class="panel active" id="panel-telegram" role="tabpanel">
+      <div class="hero">
+        <span class="chip tg"><i class="dot"></i><span data-i18n="giftAnyUsername">Gift to any username</span></span>
+        <h1><span data-i18n="telegramHeroTop">Get</span> <span class="grad tg">Telegram Premium</span><br><span data-i18n="telegramHeroBottom">without the hassle</span></h1>
+        <p data-i18n="telegramHeroDescription">Choose a duration, check the profile, and pay with ABA.</p>
+      </div>
+      <div class="cards tgcards" id="grid-telegram"></div>
+    </section>
+
+    <section class="steps-strip">
+      <div><b>1</b><span data-i18n="stepChoose">Choose</span></div>
+      <div><b>2</b><span data-i18n="stepVerify">Verify account</span></div>
+      <div><b>3</b><span data-i18n="stepPay">Scan &amp; pay</span></div>
+      <div><b>4</b><span data-i18n="stepDelivered">Delivered</span></div>
+    </section>
+  </main>
+
+  <footer>
+    <p>© <span id="yr"></span> WIKSALSTORE · <span data-i18n="paymentsByAba">Payments With ABA KHQR</span></p>
+    <p><span data-i18n="orderProblem">Problem with an order?</span> <a href="https://t.me/nhsalnghahh" target="_blank" rel="noopener" data-i18n="contactSupport">Contact @nhsalnghahh</a></p>
+    <p class="fine" data-i18n="disclaimer">Not affiliated with Telegram FZ-LLC.</p>
+  </footer>
+
+  <!-- CHECKOUT -->
+  <div class="overlay" id="overlay" hidden>
+    <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+      <button class="close" id="closeBtn" aria-label="Close" data-i18n-aria="close">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+      </button>
+
+      <div class="stepper" id="stepper">
+        <div class="st active"><i>1</i><span data-i18n="stepAccount">Account</span></div><u></u>
+        <div class="st"><i>2</i><span data-i18n="stepPayShort">Pay</span></div><u></u>
+        <div class="st"><i>3</i><span data-i18n="stepDone">Done</span></div>
+      </div>
+
+      <div class="order-line">
+        <div>
+          <small id="olCat"></small>
+          <h2 id="sheetTitle"></h2>
+        </div>
+        <div class="price" id="olPrice"></div>
+      </div>
+
+      <!-- step 1 -->
+      <div class="view" id="v1">
+        <label class="field" for="uname" id="unameLabel">Telegram username</label>
+        <div class="input-wrap" id="inputWrap">
+          <span class="at" id="atSign">@</span>
+          <input id="uname" type="text" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="32" placeholder="Enter username">
+          <button class="verify-btn" id="verifyBtn" type="button"><span class="bl" data-i18n="check">Check</span><i class="spin"></i></button>
+        </div>
+        <p class="hint" id="hint">We'll look up the profile so you can confirm it's the right one.</p>
+
+        <div class="profile" id="profile" hidden>
+          <div class="avatar"><img id="pAvatar" alt=""><span id="pInitial"></span></div>
+          <div class="pinfo">
+            <div class="pname"><b id="pName"></b><span class="verified"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="verified">Verified</span></span></div>
+            <div class="puser" id="pUser"></div>
+            <div class="pdesc" id="pDesc"></div>
+          </div>
+          <a class="plink" id="pLink" target="_blank" rel="noopener" data-i18n="view">View</a>
+        </div>
+        <button class="primary" id="toPay" type="button" disabled data-i18n="continuePayment">Continue to payment</button>
+        <p class="safe" data-i18n="passwordSafety">🔒 We never ask for your password.</p>
+      </div>
+
+      <!-- step 2 -->
+      <div class="view" id="v2" hidden>
+        <div class="qr-card" id="qrCard">
+          <div class="qr-head"><img class="aba-payment-logo" src="/img/payment-abakhqr.webp" alt="ABA KHQR"><span data-i18n="scanWithAba">Scan to pay with any banking app</span></div>
+          <div class="qr-box" id="qrBox">
+            <img id="qrImg" alt="Payment QR code">
+            <div class="qr-load"><i class="spin big"></i></div>
+          </div>
+          <div class="qr-amount"><small data-i18n="amountToPay">Amount to pay</small><b id="qrAmount"></b></div>
+          <div class="timer"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg><span data-i18n="expiresIn">Expires in</span> <b id="qrTimer">10:00</b></div>
+        </div>
+        <div class="waiting"><i class="pulse"></i><span id="waitText">Waiting for your payment…</span></div>
+        <button class="ghost" id="downloadQr" type="button" data-i18n="saveQr">Save QR image</button>
+        <button class="link" id="backBtn" type="button" data-i18n="changeAccount">← Change account</button>
+      </div>
+
+      <!-- step 3 -->
+      <div class="view center" id="v3" hidden>
+        <div class="done-ring"><svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="23" fill="none" stroke-width="3"/><path d="M15 27l8 8 14-16" fill="none" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <h3 data-i18n="thankYou">Thank you! 🎉</h3>
+        <p class="lead"><span data-i18n="paymentReceived">Payment received. Please wait about</span> <b data-i18n="oneMinute">1 minute</b> <span data-i18n="processingOrder">while we process your order.</span></p>
+        <div class="bar"><span id="doneBar"></span></div>
+        <p class="tiny" id="doneCount">Processing…</p>
+        <div class="receipt">
+          <div><span data-i18n="receiptOrder">Order</span><b id="rId"></b></div>
+          <div><span data-i18n="receiptItem">Item</span><b id="rItem"></b></div>
+          <div><span data-i18n="receiptAccount">Account</span><b id="rAcc"></b></div>
+          <div><span data-i18n="receiptPaid">Paid</span><b id="rAmt"></b></div>
+        </div>
+        <p class="tiny"><span data-i18n="somethingWrong">Something not right?</span> <a href="https://t.me/nhsalnghahh" target="_blank" rel="noopener" data-i18n="messageSupport">Message @nhsalnghahh</a> <span data-i18n="withOrderNumber">with your order number.</span></p>
+        <button class="primary" id="doneClose" type="button" data-i18n="done">Done</button>
+      </div>
+
+      <!-- error / expired -->
+      <div class="view center" id="vErr" hidden>
+        <div class="err-ico">!</div>
+        <h3 id="errTitle" data-i18n="somethingWentWrong">Something went wrong</h3>
+        <p class="lead" id="errMsg"></p>
+        <button class="primary" id="errRetry" type="button" data-i18n="tryAgain">Try again</button>
+        <a class="ghost as-link" href="https://t.me/nhsalnghahh" target="_blank" rel="noopener" data-i18n="contactSupportFull">Contact support @nhsalnghahh</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <canvas id="confetti" aria-hidden="true"></canvas>
+  <script src="app.js"></script>
+</body>
+</html>
