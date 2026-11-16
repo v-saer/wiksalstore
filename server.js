@@ -374,7 +374,7 @@ app.post('/api/webhook', express.raw({ type: 'application/json', limit: '32kb' }
   res.json({ ok: true, status: order.status });
 }));
 app.use(express.json({ limit: '10kb' }));
-if (!IS_VERCEL) app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/api', (req, res, next) => {
   if (req.path === '/config') return next();
