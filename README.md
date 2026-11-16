@@ -11,7 +11,7 @@ cp .env.example .env
 npm start
 ```
 
-Needs Node.js 18+. Each USD package displays its matching ABA KHQR image and direct payment link. Customers upload a PNG, JPEG, or WebP payment screenshot (up to 5 MB); the server sends it with the order details to the configured Telegram admin chat. A submitted screenshot is **not** treated as verified payment. Confirm the transaction before delivering Premium.
+Needs Node.js 24.x. Each USD package displays its matching ABA KHQR image and direct payment link. Customers upload a PNG, JPEG, or WebP payment screenshot (up to 5 MB); the server sends it with the order details to the configured Telegram admin chat. A submitted screenshot is **not** treated as verified payment. Confirm the transaction before delivering Premium.
 
 ## Server environment
 
