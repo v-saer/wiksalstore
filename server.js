@@ -8,18 +8,26 @@ const crypto = require('crypto');
 /*  Config                                                             */
 /* ------------------------------------------------------------------ */
 const PORT = process.env.PORT || 3000;
-const PAYWAY_MODE = String(process.env.PAYWAY_MODE || 'qr-api').toLowerCase();
-const PAYWAY_MERCHANT_ID = process.env.PAYWAY_MERCHANT_ID || '';
-const PAYWAY_SECRET_KEY = process.env.PAYWAY_SECRET_KEY || '';
-const PAYWAY_API_URL = process.env.PAYWAY_API_URL || 'https://checkout.payway.com.kh/api/payment-gateway/v1/payments/generate-qr';
-const PAYWAY_CHECK_API_URL = process.env.PAYWAY_CHECK_API_URL || 'https://checkout.payway.com.kh/api/payment-gateway/v1/payments/check-transaction-2';
-const PAYWAY_CALLBACK_URL = process.env.PAYWAY_CALLBACK_URL || '';
-const PAYWAY_LIFETIME = Number(process.env.PAYWAY_LIFETIME || 6);
+const PAYLINK_API_BASE_URL = process.env.PAYLINK_API_BASE_URL || '';
+const PAYLINK_API_KEY = process.env.PAYLINK_API_KEY || '';
+const PAYLINK_WEBHOOK_SECRET = process.env.PAYLINK_WEBHOOK_SECRET || '';
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID || '';
-const QR_TTL_MS = PAYWAY_LIFETIME * 60 * 1000;
+const QR_TTL_MS = 15 * 60 * 1000;
+const KHR_PER_USD = 4000;
+const STORE_NAME = '';
 const ORDERS_FILE = path.join(__dirname, 'data', 'orders.json');
 const SUPPORT = 'nhsalnghahh';
+const PAYMENT_LINKS = {
+  t3: 'https://pay.ababank.com/oRF8/r1vh4twz',
+  t6: 'https://pay.ababank.com/oRF8/vyl8jywz',
+  t12: 'https://pay.ababank.com/oRF8/j0k6hips',
+};
+const PAYMENT_QR_IMAGES = {
+  t3: '/img/aba-khqr-t3.png',
+  t6: '/img/aba-khqr-t6.png',
+  t12: '/img/aba-khqr-t12.png',
+};
 
 /* ------------------------------------------------------------------ */
 /*  Catalog (server is the source of truth for prices)                 */
@@ -46,6 +54,7 @@ try {
 } catch { orders = []; }
 
 let writing = Promise.resolve();
+const proofSubmissions = new Set();
 function saveOrders() {
   writing = writing.then(async () => {
     const tmp = ORDERS_FILE + '.tmp';
@@ -56,6 +65,17 @@ function saveOrders() {
   return writing;
 }
 const findOrder = (id) => orders.find((o) => o.id === id);
+const paymentAvailableForItem = (itemId) =>
+  !!PAYMENT_LINKS[itemId] && !!BOT_TOKEN && !!ADMIN_CHAT_ID;
+function parsePaymentProof(req, res, next) {
+  express.raw({ type: ['image/png', 'image/jpeg', 'image/webp'], limit: '5mb' })(req, res, (error) => {
+    if (!error) return next();
+    if (error.type === 'entity.too.large') {
+      return res.status(413).json({ error: 'Payment screenshot must be 5 MB or smaller.' });
+    }
+    return res.status(400).json({ error: 'Could not read the payment screenshot.' });
+  });
+}
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -116,104 +136,107 @@ async function lookupTelegram(username) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  ABA QR generation                                                   */
+/*  ABA PayWay API                                                     */
 /* ------------------------------------------------------------------ */
-function paywayHash(payload) {
-  const fields = [
-    'req_time', 'merchant_id', 'tran_id', 'amount', 'items', 'first_name', 'last_name',
-    'email', 'phone', 'purchase_type', 'payment_option', 'callback_url', 'return_deeplink',
-    'currency', 'custom_fields', 'return_params', 'payout', 'lifetime', 'qr_image_template',
-  ];
-  const value = fields.map((field) => payload[field] == null ? '' : String(payload[field])).join('');
-  return crypto.createHmac('sha512', PAYWAY_SECRET_KEY).update(value).digest('base64');
+function paylinkUrl(pathname) {
+  if (!PAYLINK_API_BASE_URL || !PAYLINK_API_KEY) {
+    throw new Error('Payment gateway is not configured.');
+  }
+  let base;
+  try { base = new URL(PAYLINK_API_BASE_URL); } catch { throw new Error('Payment gateway URL is invalid.'); }
+  if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash) {
+    throw new Error('Payment gateway URL must be a clean HTTPS URL.');
+  }
+  return `${base.toString().replace(/\/+$/, '')}${pathname}`;
 }
 
-function paywayRequestTime() {
-  return new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
-}
-
-async function checkPaywayTransaction(order) {
-  const reqTime = paywayRequestTime();
-  const payload = {
-    req_time: reqTime,
-    merchant_id: PAYWAY_MERCHANT_ID,
-    tran_id: order.id,
-    hash: crypto.createHmac('sha512', PAYWAY_SECRET_KEY)
-      .update(reqTime + PAYWAY_MERCHANT_ID + order.id)
-      .digest('base64'),
+async function paylinkRequest(pathname, payload, idempotencyKey) {
+  const headers = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${PAYLINK_API_KEY}`,
   };
-  const response = await fetch(PAYWAY_CHECK_API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'User-Agent': UA },
-    body: JSON.stringify(payload),
-  });
-  const text = await response.text();
-  let data;
-  try { data = JSON.parse(text); } catch { throw new Error('ABA transaction check returned invalid JSON.'); }
-  if (!response.ok) throw new Error(`ABA transaction check failed (HTTP ${response.status}).`);
+  if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
 
-  const transaction = data.data && typeof data.data === 'object' ? data.data : data;
-  const gatewayStatus = data.status || transaction.status;
-  const amount = Number(transaction.total_amount);
-  return String(gatewayStatus && gatewayStatus.code) === '00'
-    && transaction.payment_status === 'APPROVED'
-    && Number(transaction.payment_status_code) === 0
-    && Number.isFinite(amount)
-    && Math.round(amount * 100) === Math.round(Number(order.amount) * 100);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    let response;
+    try {
+      response = await fetch(paylinkUrl(pathname), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+        redirect: 'error',
+      });
+    } catch {
+      throw new Error('Payment gateway request failed.');
+    }
+
+    let data;
+    const text = await response.text();
+    if (text.length > 65536) throw new Error('Payment gateway response is too large.');
+    try { data = JSON.parse(text); } catch { throw new Error('Payment gateway returned an invalid response.'); }
+    if (!response.ok) throw new Error('Payment gateway request failed.');
+    return data;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function paymentAmount(item, currency) {
+  return currency === 'KHR' ? Math.round(item.price * KHR_PER_USD) : Number(item.price.toFixed(2));
+}
+
+function formatOrderAmount(order) {
+  return order.currency === 'KHR'
+    ? `Û ${Math.round(order.amount).toLocaleString('en-US')}`
+    : `$${Number(order.amount).toFixed(2)} USD`;
+}
+
+function paymentResponse(order) {
+  return {
+    id: order.id,
+    amount: order.amount,
+    currency: order.currency,
+    itemName: order.itemName,
+    expiresAt: order.expiresAt,
+    qrString: order.payment.qrString,
+    tranId: order.payment.tranId,
+    deepLink: order.payment.deepLink,
+    storeName: STORE_NAME,
+    provider: order.provider,
+  };
+}
+
+function manualPaymentResponse(order) {
+  return {
+    id: order.id,
+    amount: order.amount,
+    currency: order.currency,
+    itemName: order.itemName,
+    paymentLink: PAYMENT_LINKS[order.itemId],
+    paymentQrImage: PAYMENT_QR_IMAGES[order.itemId],
+    provider: order.provider,
+  };
 }
 
 async function generatePaywayQr(order) {
-  if (!PAYWAY_MERCHANT_ID) throw new Error('PAYWAY_MERCHANT_ID is not configured.');
-  if (!PAYWAY_SECRET_KEY) throw new Error('PAYWAY_SECRET_KEY is not configured.');
-  if (!PAYWAY_CALLBACK_URL) throw new Error('PAYWAY_CALLBACK_URL is not configured.');
-  if (!Number.isInteger(PAYWAY_LIFETIME) || PAYWAY_LIFETIME < 3 || PAYWAY_LIFETIME > 172800) {
-    throw new Error('PAYWAY_LIFETIME must be a whole number between 3 and 172800 minutes.');
+  const data = await paylinkRequest('/api/payment/generate-qr', {
+    amount: order.amount,
+    currency: order.currency,
+    orderId: order.id,
+  }, order.id);
+  const tranId = data && (data.tranId || data.transactionId);
+  if (
+    !data || (data.success !== undefined && data.success !== true) ||
+    typeof data.qrString !== 'string' || !data.qrString || data.qrString.length > 8192 ||
+    typeof tranId !== 'string' || !tranId || tranId.length > 128 ||
+    typeof data.deepLink !== 'string' || !data.deepLink || data.deepLink.length > 2048
+  ) {
+    throw new Error('Payment gateway returned incomplete payment details.');
   }
-
-  const amount = Number(order.amount).toFixed(2);
-  const base = {
-    req_time: paywayRequestTime(),
-    merchant_id: PAYWAY_MERCHANT_ID,
-    tran_id: order.id,
-    first_name: 'ABA',
-    last_name: 'Pay',
-    email: 'store@wiksalstore.com',
-    phone: '000000000',
-    amount,
-    purchase_type: 'purchase',
-    payment_option: 'abapay_khqr',
-    items: Buffer.from(JSON.stringify([{ name: `${order.itemName} (${order.id})`, quantity: 1, price: Number(amount) }])).toString('base64'),
-    currency: 'USD',
-    callback_url: Buffer.from(PAYWAY_CALLBACK_URL).toString('base64'),
-    return_deeplink: null,
-    custom_fields: null,
-    return_params: null,
-    payout: null,
-    lifetime: Number(PAYWAY_LIFETIME) || 6,
-    qr_image_template: 'template3_color',
-  };
-
-  const payload = { ...base, hash: paywayHash(base) };
-  const res = await fetch(PAYWAY_API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'User-Agent': UA },
-    body: JSON.stringify(payload),
-  });
-
-  const text = await res.text();
-  let data;
-  try { data = JSON.parse(text); } catch { data = { raw: text }; }
-  if (!res.ok || (data && data.status && String(data.status.code) !== '0')) {
-    const msg = (data && data.status && data.status.message) || text || 'ABA QR generation failed';
-    throw new Error(msg);
-  }
-  if (!data.qrString || !data.qrImage) throw new Error('ABA QR API returned no QR string or image.');
-
-  return {
-    qr: data.qrString || '',
-    qrImage: data.qrImage || '',
-    raw: data,
-  };
+  return { qrString: data.qrString, tranId, deepLink: data.deepLink };
 }
 
 /* ------------------------------------------------------------------ */
@@ -226,7 +249,7 @@ async function alertBot(order) {
     `━━━━━━━━━━━━━━\n` +
     `🧾 <b>Order:</b> <code>${esc(order.id)}</code>\n` +
     `📦 <b>Product:</b> ${esc(order.categoryLabel)} — ${esc(order.itemName)}\n` +
-    `💵 <b>Amount:</b> $${order.amount.toFixed(2)}\n` +
+    `💵 <b>Amount:</b> ${formatOrderAmount(order)}\n` +
     `👤 <b>${order.platform === 'roblox' ? 'Roblox' : 'Telegram'}:</b> ${esc(order.account.username)}` +
     (order.account.displayName ? ` (${esc(order.account.displayName)})` : '') + `\n` +
     `🔗 ${esc(order.account.profileUrl)}\n` +
@@ -248,6 +271,43 @@ async function alertBot(order) {
   }
 }
 
+async function alertPaymentProof(order, image, mimeType) {
+  if (!BOT_TOKEN || !ADMIN_CHAT_ID) throw new Error('Telegram bot is not configured.');
+
+  const text =
+    `🧾 <b>PAYMENT PROOF SUBMITTED</b>\n` +
+    `━━━━━━━━━━━━━━\n` +
+    `🧾 <b>Order:</b> <code>${esc(order.id)}</code>\n` +
+    `📦 <b>Product:</b> ${esc(order.categoryLabel)} — ${esc(order.itemName)}\n` +
+    `💵 <b>Amount:</b> ${formatOrderAmount(order)}\n` +
+    `👤 <b>Telegram:</b> ${esc(order.account.username)}` +
+    (order.account.displayName ? ` (${esc(order.account.displayName)})` : '') + `\n` +
+    `🔗 ${esc(order.account.profileUrl)}\n` +
+    `🕒 ${esc(new Date().toISOString())}\n` +
+    `━━━━━━━━━━━━━━\n` +
+    `⚠️ Verify the payment before delivering Premium.`;
+  const form = new FormData();
+  const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
+  form.append('chat_id', ADMIN_CHAT_ID);
+  form.append('caption', text);
+  form.append('parse_mode', 'HTML');
+  form.append('photo', new Blob([image], { type: mimeType }), `payment-proof.${extension}`);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
+      method: 'POST',
+      body: form,
+      signal: controller.signal,
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error('Telegram did not accept the payment proof.');
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function markPaid(order, txn) {
   if (order.status === 'paid') return;
   order.status = 'paid';
@@ -263,23 +323,70 @@ async function markPaid(order, txn) {
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
-app.use(express.json({ limit: '10kb' }));
 app.use((req, res, next) => {
   res.set({
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'no-referrer',
   });
+  if (process.env.NODE_ENV === 'production' && !req.secure) {
+    return res.redirect(301, `https://${req.headers.host}${req.originalUrl}`);
+  }
+  if (process.env.NODE_ENV === 'production' && req.secure) {
+    res.set('Strict-Transport-Security', 'max-age=31536000');
+  }
   next();
 });
+app.post('/api/webhook', express.raw({ type: 'application/json', limit: '32kb' }), async (req, res) => {
+  if (!PAYLINK_WEBHOOK_SECRET) return res.status(503).json({ ok: false, error: 'Webhook is not configured.' });
+  if (!Buffer.isBuffer(req.body)) return res.status(400).json({ ok: false, error: 'Invalid webhook body.' });
+
+  const signature = req.headers['x-signature'];
+  const sig = Buffer.from(typeof signature === 'string' ? signature : '');
+  const want = Buffer.from(crypto.createHmac('sha256', PAYLINK_WEBHOOK_SECRET).update(req.body).digest('hex'));
+  if (sig.length !== want.length || !/^[a-f\d]{64}$/i.test(sig.toString('utf8')) || !crypto.timingSafeEqual(sig, want)) {
+    return res.status(401).json({ ok: false, error: 'Invalid webhook signature.' });
+  }
+
+  let payload;
+  try { payload = JSON.parse(req.body.toString('utf8')); } catch {
+    return res.status(400).json({ ok: false, error: 'Invalid webhook payload.' });
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return res.status(400).json({ ok: false, error: 'Invalid webhook payload.' });
+  }
+  const eventData = payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
+    ? payload.data
+    : {};
+  const transactionId = typeof eventData.tranId === 'string'
+    ? eventData.tranId
+    : typeof payload.tranId === 'string' ? payload.tranId : '';
+  const orderId = typeof eventData.orderId === 'string'
+    ? eventData.orderId
+    : typeof payload.orderId === 'string' ? payload.orderId : '';
+  const order = orders.find((entry) =>
+    entry.provider === 'aba-payway' &&
+    (entry.id === orderId || (transactionId && entry.payment && entry.payment.tranId === transactionId))
+  );
+  if (!order) return res.status(404).json({ ok: false, error: 'Order not found.' });
+  if (payload.status === 'PAID' && order.status !== 'paid') {
+    await markPaid(order);
+  }
+  res.json({ ok: true, status: order.status });
+});
+app.use(express.json({ limit: '10kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/config', (req, res) => {
   const catalog = {};
   for (const [k, c] of Object.entries(CATALOG)) {
-    catalog[k] = { label: c.label, platform: c.platform, items: Object.entries(c.items).map(([id, i]) => ({ id, ...i })) };
+    catalog[k] = {
+      label: c.label,
+      platform: c.platform,
+      items: Object.entries(c.items).map(([id, i]) => ({ id, ...i, paymentAvailable: paymentAvailableForItem(id) })),
+    };
   }
-  res.json({ support: SUPPORT, catalog });
+  res.json({ support: SUPPORT, catalog, storeName: STORE_NAME, khrPerUsd: KHR_PER_USD });
 });
 
 app.get('/api/telegram/:username', rateLimit(30, 60_000), async (req, res) => {
@@ -295,16 +402,24 @@ app.get('/api/telegram/:username', rateLimit(30, 60_000), async (req, res) => {
 });
 
 app.post('/api/orders', rateLimit(10, 60_000), async (req, res) => {
+  let orderId = '';
   try {
-    const { category, itemId, username } = req.body || {};
+    const { category, itemId, username, currency, orderId: requestedOrderId } = req.body || {};
+    orderId = typeof requestedOrderId === 'string' ? requestedOrderId : '';
     const cat = CATALOG[category];
     const item = cat && cat.items[itemId];
     if (!item) return res.status(400).json({ error: 'Invalid product.' });
-    if (PAYWAY_MODE !== 'qr-api') {
-      return res.status(503).json({ error: 'Only ABA QR API payments are supported.' });
+    if (!PAYMENT_LINKS[itemId]) {
+      return res.status(503).json({ error: 'This payment option is temporarily unavailable. Please contact support.' });
     }
-    if (!PAYWAY_MERCHANT_ID || !PAYWAY_SECRET_KEY || !PAYWAY_CALLBACK_URL) {
-      return res.status(503).json({ error: 'ABA QR payments are not configured yet. Please contact support.' });
+    if (!BOT_TOKEN || !ADMIN_CHAT_ID) {
+      return res.status(503).json({ error: 'Payment proof notifications are not configured. Please contact support.' });
+    }
+    if (currency !== 'USD') {
+      return res.status(400).json({ error: 'Only USD payments are available.' });
+    }
+    if (!/^WS-[A-Za-z0-9-]{16,50}$/.test(orderId)) {
+      return res.status(400).json({ error: 'Invalid order ID.' });
     }
 
     // re-verify the account server-side so nobody can order for a made-up profile
@@ -312,10 +427,22 @@ app.post('/api/orders', rateLimit(10, 60_000), async (req, res) => {
     const account = /^[A-Za-z0-9_]{5,32}$/.test(clean) ? await lookupTelegram(clean) : null;
     if (!account) return res.status(400).json({ error: 'Account could not be verified.' });
 
-    const id = 'WS-' + Date.now().toString(36).toUpperCase() + crypto.randomBytes(2).toString('hex').toUpperCase();
+    const existing = findOrder(orderId);
+    if (existing) {
+      if (
+        existing.provider !== 'khqr-manual' || existing.category !== category ||
+        existing.itemId !== itemId || existing.currency !== currency ||
+        existing.account.username !== account.username
+      ) return res.status(409).json({ error: 'Order ID has already been used.' });
+      if (existing.status !== 'pending' && existing.status !== 'proof_submitted') {
+        return res.status(409).json({ error: 'This order is no longer available.' });
+      }
+      return res.json(manualPaymentResponse(existing));
+    }
+
     const now = Date.now();
     const order = {
-      id,
+      id: orderId,
       status: 'pending',
       category,
       categoryLabel: cat.label,
@@ -324,6 +451,7 @@ app.post('/api/orders', rateLimit(10, 60_000), async (req, res) => {
       itemName: item.name,
       amount: item.price,
       currency: 'USD',
+      amountUsd: item.price,
       account: {
         username: account.username,
         displayName: account.displayName || '',
@@ -331,29 +459,67 @@ app.post('/api/orders', rateLimit(10, 60_000), async (req, res) => {
         profileUrl: account.profileUrl,
       },
       createdAt: new Date(now).toISOString(),
-      expiresAt: now + QR_TTL_MS,
       paidAt: null,
       botNotified: false,
-      provider: 'aba-payway-api',
+      provider: 'khqr-manual',
     };
 
-    const payway = await generatePaywayQr(order);
-    order.payway = payway.raw;
     orders.push(order);
     await saveOrders();
-    res.json({
-      id,
-      amount: order.amount,
-      itemName: item.name,
-      expiresAt: order.expiresAt,
-      qrImage: payway.qrImage,
-      provider: order.provider,
-    });
-  } catch (e) {
-    console.error('create order:', e);
-    res.status(500).json({ error: 'Could not create the payment. Please try again or contact support.' });
+    res.json(manualPaymentResponse(order));
+  } catch {
+    console.error('Payment order creation failed for order', orderId || '(invalid ID)');
+    res.status(502).json({ error: 'Could not create the payment order. Please try again or contact support.' });
   }
 });
+
+app.post(
+  '/api/orders/:id/proof',
+  rateLimit(5, 10 * 60_000),
+  parsePaymentProof,
+  async (req, res) => {
+    const order = findOrder(req.params.id);
+    if (!order || order.provider !== 'khqr-manual') return res.status(404).json({ error: 'Order not found.' });
+    if (order.status === 'proof_submitted') {
+      return res.json({ id: order.id, status: order.status, submitted: true });
+    }
+    if (order.status !== 'pending') return res.status(409).json({ error: 'This order cannot accept a payment proof.' });
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      return res.status(400).json({ error: 'Choose a payment screenshot to upload.' });
+    }
+
+    const mimeType = req.headers['content-type'];
+    const isPng = mimeType === 'image/png' && req.body.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    const isJpeg = mimeType === 'image/jpeg' && req.body[0] === 0xff && req.body[1] === 0xd8 && req.body[2] === 0xff;
+    const isWebp = mimeType === 'image/webp' &&
+      req.body.toString('ascii', 0, 4) === 'RIFF' &&
+      req.body.toString('ascii', 8, 12) === 'WEBP';
+    if (!isPng && !isJpeg && !isWebp) {
+      return res.status(400).json({ error: 'Upload a valid PNG, JPEG, or WebP payment screenshot.' });
+    }
+    if (!BOT_TOKEN || !ADMIN_CHAT_ID) {
+      return res.status(503).json({ error: 'Payment proof notifications are not configured. Please contact support.' });
+    }
+    if (proofSubmissions.has(order.id)) {
+      return res.status(409).json({ error: 'Your payment proof is already being sent.' });
+    }
+
+    proofSubmissions.add(order.id);
+    try {
+      await alertPaymentProof(order, req.body, mimeType);
+      order.status = 'proof_submitted';
+      order.proofSubmittedAt = new Date().toISOString();
+      order.proofBotNotified = true;
+      await saveOrders();
+      res.json({ id: order.id, status: order.status, submitted: true });
+    } catch (e) {
+      console.error(`Payment proof alert failed for order ${order.id}:`, e.message);
+      res.status(502).json({ error: 'Could not send your payment proof. Please try again or contact support.' });
+    } finally {
+      proofSubmissions.delete(order.id);
+    }
+  }
+);
 
 app.get('/api/orders/:id/status', rateLimit(120, 60_000), async (req, res) => {
   const order = findOrder(req.params.id);
@@ -365,32 +531,36 @@ app.get('/api/orders/:id/status', rateLimit(120, 60_000), async (req, res) => {
   res.json({ id: order.id, status: order.status, paidAt: order.paidAt });
 });
 
-app.post('/api/payway/callback', express.json({ limit: '1mb' }), async (req, res) => {
+app.post('/api/orders/:id/check', rateLimit(30, 60_000), async (req, res) => {
+  const order = findOrder(req.params.id);
+  if (!order || order.provider !== 'aba-payway') return res.status(404).json({ error: 'Order not found.' });
+  if (order.status === 'paid') return res.json({ id: order.id, status: 'PAID', paid: true });
+  if (Date.now() > order.expiresAt) {
+    order.status = 'expired';
+    await saveOrders();
+    return res.json({ id: order.id, status: 'EXPIRED', paid: false });
+  }
+  if (!order.payment || !order.payment.tranId) {
+    return res.status(409).json({ error: 'Payment has not been initialized.' });
+  }
+
   try {
-    const payload = req.body || {};
-    const orderId = typeof payload.tran_id === 'string' ? payload.tran_id : '';
-    const order = findOrder(orderId);
-    if (!order) return res.status(404).json({ ok: false, error: 'Order not found' });
-    if (order.provider !== 'aba-payway-api') return res.status(400).json({ ok: false, error: 'This order is not an ABA QR API payment.' });
-
-    if (String(payload.status) === '0' && order.status !== 'paid' && await checkPaywayTransaction(order)) {
-      await markPaid(order, { hash: payload.apv || null, from: payload.payer_account || 'payway' });
+    const result = await paylinkRequest('/api/payment/check', { tranId: order.payment.tranId });
+    if (result && result.status === 'PAID' && result.paid !== false) {
+      await markPaid(order);
+      return res.json({ id: order.id, status: 'PAID', paid: true });
     }
-
-    res.json({ ok: true, status: order.status });
-  } catch (e) {
-    console.error('PayWay callback failed:', e.message);
-    res.status(500).json({ ok: false, error: 'Callback failed' });
+    if (!result || result.status !== 'PENDING') {
+      return res.status(502).json({ error: 'Payment gateway returned an invalid status.' });
+    }
+    res.json({ id: order.id, status: 'PENDING', paid: false });
+  } catch {
+    res.status(502).json({ error: 'Could not verify the payment right now.' });
   }
 });
 
 app.listen(PORT, () => {
   console.log(`WIKSALSTORE running → http://localhost:${PORT}`);
-  if (PAYWAY_MODE !== 'qr-api') {
-    console.error('! Unsupported payment mode – only ABA QR API payments are allowed.');
-  } else if (!PAYWAY_MERCHANT_ID || !PAYWAY_SECRET_KEY || !PAYWAY_CALLBACK_URL) {
-    console.warn('! ABA QR payment is not fully configured yet – checkout will be disabled.');
-  }
-  if (!BOT_TOKEN || !ADMIN_CHAT_ID) console.warn('! Telegram bot not configured – order alerts disabled.');
-  if (PAYWAY_MODE === 'qr-api' && PAYWAY_MERCHANT_ID && PAYWAY_SECRET_KEY && PAYWAY_CALLBACK_URL) console.log('ABA QR API mode enabled.');
+  if (!PAYLINK_API_BASE_URL || !PAYLINK_API_KEY) console.warn('! Legacy ABA PayWay checks are not configured.');
+  if (!BOT_TOKEN || !ADMIN_CHAT_ID) console.warn('! Telegram bot not configured – payment proof alerts disabled.');
 });

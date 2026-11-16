@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>wiksalstore</title>
-  <meta name="description" content="Get Telegram Premium quickly and safely. Pay with ABA.">
+  <meta name="description" content="Get Telegram Premium quickly and safely with ABA payment links.">
   <meta name="theme-color" content="#0b1020">
   <link rel="icon" href="/img/logo.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -46,7 +46,7 @@
       <div class="hero">
         <span class="chip tg"><i class="dot"></i><span data-i18n="giftAnyUsername">Gift to any username</span></span>
         <h1><span data-i18n="telegramHeroTop">Get</span> <span class="grad tg">Telegram Premium</span><br><span data-i18n="telegramHeroBottom">without the hassle</span></h1>
-        <p data-i18n="telegramHeroDescription">Choose a duration, check the profile, and pay with ABA.</p>
+        <p data-i18n="telegramHeroDescription">Choose a duration, check the profile, then scan the QR or open the ABA payment link.</p>
       </div>
       <div class="cards tgcards" id="grid-telegram"></div>
     </section>
@@ -60,7 +60,7 @@
   </main>
 
   <footer>
-    <p>© <span id="yr"></span> WIKSALSTORE · <span data-i18n="paymentsByAba">Payments With ABA KHQR</span></p>
+    <p>© <span id="yr"></span> WIKSALSTORE · <span data-i18n="paymentsByAba">Payments via ABA payment links</span></p>
     <p><span data-i18n="orderProblem">Problem with an order?</span> <a href="https://t.me/nhsalnghahh" target="_blank" rel="noopener" data-i18n="contactSupport">Contact @nhsalnghahh</a></p>
     <p class="fine" data-i18n="disclaimer">Not affiliated with Telegram FZ-LLC.</p>
   </footer>
@@ -83,7 +83,9 @@
           <small id="olCat"></small>
           <h2 id="sheetTitle"></h2>
         </div>
-        <div class="price" id="olPrice"></div>
+        <div class="checkout-total">
+          <div class="price" id="olPrice"></div>
+        </div>
       </div>
 
       <!-- step 1 -->
@@ -112,16 +114,43 @@
       <!-- step 2 -->
       <div class="view" id="v2" hidden>
         <div class="qr-card" id="qrCard">
-          <div class="qr-head"><img class="aba-payment-logo" src="/img/payment-abakhqr.webp" alt="ABA KHQR"><span data-i18n="scanWithAba">Scan to pay with any banking app</span></div>
-          <div class="qr-box" id="qrBox">
-            <img id="qrImg" alt="Payment QR code">
-            <div class="qr-load"><i class="spin big"></i></div>
+          <div class="aba-qr-box">
+            <img class="aba-qr-logo" src="/img/aba-qr.svg" alt="ABA QR">
+            <div class="khqr-content">
+              <div class="khqr-banner">KHQR</div>
+              <div class="merc-khqr-info">
+                <span class="merchant-name">PHAN VISAL</span>
+                <div class="total-amount-khqr">
+                  <span class="amount-value" id="qrAmount"></span>
+                  <span class="amount-symbol" id="qrCurrency"></span>
+                </div>
+              </div>
+              <div class="line-divider"></div>
+              <div class="khqr-code" id="qrBox">
+                <img id="khqrImage" alt="ABA KHQR for the selected package">
+                <div class="qr-load"><i class="spin big"></i></div>
+              </div>
+            </div>
+            <p class="khqr-scan-desc" data-i18n="scanWithAba">Scan with any Mobile Banking App supporting KHQR</p>
           </div>
-          <div class="qr-amount"><small data-i18n="amountToPay">Amount to pay</small><b id="qrAmount"></b></div>
-          <div class="timer"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg><span data-i18n="expiresIn">Expires in</span> <b id="qrTimer">10:00</b></div>
+          <p class="proof-error" id="qrError" role="alert" hidden></p>
+          <div class="payment-details">
+            <div><small data-i18n="orderId">Order ID</small><b id="qrOrderId"></b></div>
+          </div>
         </div>
-        <div class="waiting"><i class="pulse"></i><span id="waitText">Waiting for your payment…</span></div>
-        <button class="ghost" id="downloadQr" type="button" data-i18n="saveQr">Save QR image</button>
+        <a class="ghost banking-link" id="paymentLink" href="#" target="_blank" rel="noopener" data-i18n="payWithAbaLink">Open ABA payment link</a>
+        <p class="proof-instructions" data-i18n="uploadProofInstructions">After paying, choose a screenshot of your successful payment.</p>
+        <input id="proofFile" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+        <label class="ghost upload-proof" id="chooseProof" for="proofFile">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0 4 4m-4-4L8 8M4 16v4h16v-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span data-i18n="chooseReceipt">Choose payment screenshot</span>
+        </label>
+        <div class="proof-preview" id="proofPreview" hidden>
+          <img id="proofPreviewImage" alt="">
+          <span id="proofFileName"></span>
+        </div>
+        <p class="proof-error" id="proofError" role="alert" hidden></p>
+        <button class="primary" id="submitProof" type="button" disabled data-i18n="submitReceipt">I've paid — submit receipt</button>
         <button class="link" id="backBtn" type="button" data-i18n="changeAccount">← Change account</button>
       </div>
 
@@ -129,14 +158,12 @@
       <div class="view center" id="v3" hidden>
         <div class="done-ring"><svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="23" fill="none" stroke-width="3"/><path d="M15 27l8 8 14-16" fill="none" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
         <h3 data-i18n="thankYou">Thank you! 🎉</h3>
-        <p class="lead"><span data-i18n="paymentReceived">Payment received. Please wait about</span> <b data-i18n="oneMinute">1 minute</b> <span data-i18n="processingOrder">while we process your order.</span></p>
-        <div class="bar"><span id="doneBar"></span></div>
-        <p class="tiny" id="doneCount">Processing…</p>
+        <p class="lead" data-i18n="proofSubmittedMessage">Thank you! Your payment proof has been sent for review. We will deliver Premium after verifying your payment.</p>
         <div class="receipt">
           <div><span data-i18n="receiptOrder">Order</span><b id="rId"></b></div>
           <div><span data-i18n="receiptItem">Item</span><b id="rItem"></b></div>
           <div><span data-i18n="receiptAccount">Account</span><b id="rAcc"></b></div>
-          <div><span data-i18n="receiptPaid">Paid</span><b id="rAmt"></b></div>
+          <div><span data-i18n="receiptAmount">Amount</span><b id="rAmt"></b></div>
         </div>
         <p class="tiny"><span data-i18n="somethingWrong">Something not right?</span> <a href="https://t.me/nhsalnghahh" target="_blank" rel="noopener" data-i18n="messageSupport">Message @nhsalnghahh</a> <span data-i18n="withOrderNumber">with your order number.</span></p>
         <button class="primary" id="doneClose" type="button" data-i18n="done">Done</button>

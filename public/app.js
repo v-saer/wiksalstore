@@ -2,21 +2,23 @@
   'use strict';
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-  const money = (n) => '$' + Number(n).toFixed(2);
+  const money = (n, currency = 'USD') => currency === 'KHR'
+    ? `៛ ${Math.round(Number(n)).toLocaleString('en-US')}`
+    : '$' + Number(n).toFixed(2);
   const TEXT = {
     en: {
       pageTitle: 'WIKSALSTORE — Telegram Premium',
-      pageDescription: 'Get Telegram Premium quickly and safely. Pay with ABA KHQR.',
+      pageDescription: 'Get Telegram Premium quickly and safely with ABA payment links.',
       support: 'Support 24/7',
       giftAnyUsername: 'Gift to any username',
       telegramHeroTop: 'Get',
       telegramHeroBottom: 'without the hassle',
-      telegramHeroDescription: 'Choose a duration, check the profile, and pay with ABA KHQR.',
+      telegramHeroDescription: 'Choose a duration, check the profile, then scan the QR or open the ABA payment link.',
       stepChoose: 'Choose',
       stepVerify: 'Verify account',
-      stepPay: 'Scan & pay',
+      stepPay: 'Scan or open link',
       stepDelivered: 'Delivered',
-      paymentsByAba: 'Payments by ABA',
+      paymentsByAba: 'Payments via ABA payment links',
       orderProblem: 'Problem with an order?',
       contactSupport: 'Contact @nhsalnghahh',
       disclaimer: 'Not affiliated with Telegram FZ-LLC.',
@@ -30,23 +32,29 @@
       viewProfile: 'View profile',
       continuePayment: 'Continue to payment',
       passwordSafety: '🔒 We never ask for your password.',
-      scanWithAba: 'Scan to pay with any banking app',
-      amountToPay: 'Amount to pay',
-      expiresIn: 'Expires in',
-      saveQr: 'Save QR image',
+      scanWithAba: 'Scan with any Mobile Banking App supporting KHQR',
+      payWithAbaLink: 'Open ABA payment link',
+      orderId: 'Order ID',
       changeAccount: '← Change account',
       thankYou: 'Thank you! 🎉',
-      paymentReceived: 'Payment received. Please wait about',
-      oneMinute: '1 minute',
-      processingOrder: 'while we process your order.',
       receiptOrder: 'Order',
       receiptItem: 'Item',
       receiptAccount: 'Account',
-      receiptPaid: 'Paid',
+      receiptAmount: 'Amount',
       somethingWrong: 'Something not right?',
       messageSupport: 'Message @nhsalnghahh',
       withOrderNumber: 'with your order number.',
       done: 'Done',
+      temporarilyUnavailable: 'Temporarily unavailable',
+      uploadProofInstructions: 'After paying, upload a screenshot of your successful payment.',
+      chooseReceipt: 'Upload payment screenshot',
+      submitReceipt: "I've paid — submit receipt",
+      sendingReceipt: 'Sending receipt…',
+      proofSubmittedMessage: 'Thank you! Your payment proof has been sent for review. We will deliver Premium after verifying your payment.',
+      proofFileInvalid: 'Upload a PNG, JPEG, or WebP image smaller than 5 MB.',
+      proofUploadFailed: 'Could not send your payment proof. Please try again or contact support.',
+      paymentLinkInvalid: 'The ABA payment link is invalid. Please contact support.',
+      qrImageLoadFailed: 'Could not load the ABA KHQR image. Use the ABA payment link below instead.',
       somethingWentWrong: 'Something went wrong',
       tryAgain: 'Try again',
       contactSupportFull: 'Contact support @nhsalnghahh',
@@ -76,37 +84,27 @@
       networkCheck: 'Network error. Check your connection.',
       networkRetry: 'Network error. Please check your connection and try again.',
       accountUnverified: 'Account could not be verified.',
-      paymentNotConfigured: 'ABA QR payments are not configured yet. Please contact support.',
-      paymentModeInvalid: 'ABA QR API is the only supported payment option. Please contact support.',
-      qrResponseMissing: 'ABA QR API returned no QR string or image.',
+      paymentNotConfigured: 'Telegram payment notifications are not configured yet. Please contact support.',
       invalidProduct: 'Invalid product.',
       createPaymentFailed: 'Could not create the payment. Please try again or contact support.',
       creatingPayment: 'Creating payment…',
       paymentStartFailed: 'Payment could not start',
-      qrExpired: 'QR code expired',
-      qrExpiredMessage: 'The payment time ran out. If you already paid, contact support with your order number {order}. Otherwise try again.',
-      tryNewPayment: 'Please create a new payment and try again.',
-      waitingPayment: 'Waiting for your payment…',
-      savedQr: 'QR saved to your device',
       couldNotLoad: 'Could not load the store. Please refresh.',
-      processingSeconds: 'Processing your order… about {seconds}s left',
-      processingAlmostDone: "Almost there — if it isn't delivered yet, message support with your order number.",
-      statusPaid: 'Payment received. Please wait about 1 minute while we process your order.',
       errorTryAgain: 'Try again',
     },
     km: {
       pageTitle: 'WIKSALSTORE — Telegram Premium',
-      pageDescription: 'ទទួលបាន Telegram Premium យ៉ាងរហ័ស និងមានសុវត្ថិភាព។ បង់ប្រាក់តាម ABA។',
+      pageDescription: 'ទទួលបាន Telegram Premium យ៉ាងរហ័ស និងមានសុវត្ថិភាព តាមតំណទូទាត់ ABA KHQR',
       support: 'ជំនួយ ២៤/៧',
       giftAnyUsername: 'ផ្ញើជាអំណោយទៅឈ្មោះអ្នកប្រើណាមួយ',
       telegramHeroTop: 'ទទួលបាន',
       telegramHeroBottom: 'ដោយមិនស្មុគស្មាញ',
-      telegramHeroDescription: 'ជ្រើសរើសរយៈពេល ពិនិត្យប្រវត្តិរូប ហើយបង់ប្រាក់តាម ABA KHQR',
+      telegramHeroDescription: 'ជ្រើសរើសរយៈពេល ពិនិត្យគណនី បន្ទាប់មកស្កេន QR ឬបើកតំណទូទាត់ ABA KHQR',
       stepChoose: 'ជ្រើសរើស',
       stepVerify: 'ផ្ទៀងផ្ទាត់គណនី',
-      stepPay: 'ស្កេន និងបង់ប្រាក់',
+      stepPay: 'ស្កេន ឬបើកតំណ',
       stepDelivered: 'ទទួលបានសេវាកម្ម',
-      paymentsByAba: 'ទូទាត់តាម ABA KHQR',
+      paymentsByAba: 'ទូទាត់តាមតំណ ABA',
       orderProblem: 'មានបញ្ហាជាមួយការបញ្ជាទិញ?',
       contactSupport: 'ទាក់ទង @nhsalnghahh',
       disclaimer: 'មិនមានទំនាក់ទំនងជាមួយ Telegram FZ-LLC ទេ។',
@@ -120,23 +118,29 @@
       viewProfile: 'មើលប្រវត្តិរូប',
       continuePayment: 'បន្តទៅការបង់ប្រាក់',
       passwordSafety: '🔒 យើងមិនស្នើសុំពាក្យសម្ងាត់របស់អ្នកទេ។',
-      scanWithAba: 'ស្កេនដើម្បីបង់ប្រាក់តាមកម្មវិធីធនាគារណាមួយ',
-      amountToPay: 'ចំនួនទឹកប្រាក់ត្រូវបង់',
-      expiresIn: 'ផុតកំណត់ក្នុង',
-      saveQr: 'រក្សាទុករូបភាព QR',
+      scanWithAba: 'ស្កេនដោយកម្មវិធីធនាគារចល័តណាមួយដែលគាំទ្រ KHQR',
+      payWithAbaLink: 'បើកតំណទូទាត់ ABA',
+      orderId: 'លេខបញ្ជាទិញ',
       changeAccount: '← ប្តូរគណនី',
       thankYou: 'សូមអរគុណ! 🎉',
-      paymentReceived: 'បានទទួលការទូទាត់។ សូមរង់ចាំប្រហែល',
-      oneMinute: '១ ទៅ ៥ នាទី',
-      processingOrder: 'ខណៈពេលយើងដំណើរការការបញ្ជាទិញរបស់អ្នក។',
       receiptOrder: 'លេខបញ្ជាទិញ',
       receiptItem: 'ទំនិញ',
       receiptAccount: 'គណនី',
-      receiptPaid: 'បានបង់',
+      receiptAmount: 'ចំនួនទឹកប្រាក់',
       somethingWrong: 'មានអ្វីមិនត្រឹមត្រូវមែនទេ?',
       messageSupport: 'ផ្ញើសារទៅ @nhsalnghahh',
       withOrderNumber: 'ដោយភ្ជាប់លេខបញ្ជាទិញរបស់អ្នក។',
       done: 'រួចរាល់',
+      temporarilyUnavailable: 'មិនទាន់អាចប្រើបានទេ',
+      uploadProofInstructions: 'បន្ទាប់ពីបង់ប្រាក់ សូមសូមបញ្ចូលវិក្កយប័ត្របញ្ជាក់ពីការបង់ប្រាក់ជោគជ័យ។',
+      chooseReceipt: 'សូមបញ្ចូលវិក្កយប័ត្របង់ប្រាក់',
+      submitReceipt: 'ខ្ញុំបានបង់ប្រាក់ — ផ្ញើបង្កាន់ដៃ',
+      sendingReceipt: 'កំពុងផ្ញើបង្កាន់ដៃ…',
+      proofSubmittedMessage: 'សូមអរគុណ! បង្កាន់ដៃបង់ប្រាក់របស់អ្នកត្រូវបានផ្ញើទៅពិនិត្យ។ យើងនឹងផ្តល់ Premium បន្ទាប់ពីផ្ទៀងផ្ទាត់ការបង់ប្រាក់រួច។',
+      proofFileInvalid: 'សូមជ្រើសរើសរូបភាព PNG, JPEG ឬ WebP ដែលមានទំហំតិចជាង ៥ MB។',
+      proofUploadFailed: 'មិនអាចផ្ញើបង្កាន់ដៃបង់ប្រាក់បានទេ។ សូមព្យាយាមម្តងទៀត ឬទាក់ទងជំនួយ។',
+      paymentLinkInvalid: 'តំណទូទាត់ ABA មិនត្រឹមត្រូវទេ។ សូមទាក់ទងជំនួយ។',
+      qrImageLoadFailed: 'មិនអាចបង្ហាញរូបភាព ABA KHQR បានទេ។ សូមប្រើតំណទូទាត់ ABA ខាងក្រោម។',
       somethingWentWrong: 'មានបញ្ហាកើតឡើង',
       tryAgain: 'ព្យាយាមម្តងទៀត',
       contactSupportFull: 'ទាក់ទងជំនួយ @nhsalnghahh',
@@ -166,22 +170,12 @@
       networkCheck: 'មានបញ្ហាបណ្តាញ។ សូមពិនិត្យការតភ្ជាប់របស់អ្នក។',
       networkRetry: 'មានបញ្ហាបណ្តាញ។ សូមពិនិត្យការតភ្ជាប់ ហើយព្យាយាមម្តងទៀត។',
       accountUnverified: 'មិនអាចផ្ទៀងផ្ទាត់គណនីបានទេ។',
-      paymentNotConfigured: 'ការទូទាត់ ABA QR មិនទាន់បានកំណត់រចនាសម្ព័ន្ធទេ។ សូមទាក់ទងជំនួយ។',
-      paymentModeInvalid: 'អាចប្រើតែ ABA QR API សម្រាប់ការទូទាត់ប៉ុណ្ណោះ។ សូមទាក់ទងជំនួយ។',
-      qrResponseMissing: 'ABA QR API មិនបានផ្តល់ QR string ឬរូបភាពទេ។',
+      paymentNotConfigured: 'ការជូនដំណឹងការទូទាត់តាម Telegram មិនទាន់បានកំណត់ទេ។ សូមទាក់ទងជំនួយ។',
       invalidProduct: 'ផលិតផលមិនត្រឹមត្រូវទេ។',
       createPaymentFailed: 'មិនអាចបង្កើតការទូទាត់បានទេ។ សូមព្យាយាមម្តងទៀត ឬទាក់ទងជំនួយ។',
       creatingPayment: 'កំពុងបង្កើតការទូទាត់…',
       paymentStartFailed: 'មិនអាចចាប់ផ្តើមការទូទាត់បានទេ',
-      qrExpired: 'QR ផុតកំណត់',
-      qrExpiredMessage: 'ពេលវេលាទូទាត់បានផុតកំណត់។ បើអ្នកបានបង់រួច សូមទាក់ទងជំនួយដោយផ្តល់លេខបញ្ជាទិញ {order}។ បើមិនទាន់ទេ សូមសាកល្បងម្តងទៀត។',
-      tryNewPayment: 'សូមបង្កើតការទូទាត់ថ្មី ហើយព្យាយាមម្តងទៀត។',
-      waitingPayment: 'កំពុងរង់ចាំការទូទាត់របស់អ្នក…',
-      savedQr: 'បានរក្សាទុក QR ក្នុងឧបករណ៍របស់អ្នក',
       couldNotLoad: 'មិនអាចផ្ទុកហាងបានទេ។ សូមផ្ទុកទំព័រឡើងវិញ។',
-      processingSeconds: 'កំពុងដំណើរការការបញ្ជាទិញ… នៅសល់ប្រហែល {seconds} វិនាទី',
-      processingAlmostDone: 'ជិតរួចរាល់ហើយ — បើមិនទាន់បានទទួល សូមផ្ញើលេខបញ្ជាទិញទៅជំនួយ។',
-      statusPaid: 'បានទទួលការទូទាត់។ សូមរង់ចាំប្រហែល ១ ទៅ ៥ នាទី ខណៈពេលយើងដំណើរការការបញ្ជាទិញ។',
       errorTryAgain: 'ព្យាយាមម្តងទៀត',
     },
   };
@@ -195,11 +189,17 @@
     'Network error. Check your connection.': 'networkCheck',
     'Network error. Please check your connection and try again.': 'networkRetry',
     'Account could not be verified.': 'accountUnverified',
-    'ABA QR payments are not configured yet. Please contact support.': 'paymentNotConfigured',
-    'Only ABA QR API payments are supported.': 'paymentModeInvalid',
-    'ABA QR API returned no QR string or image.': 'qrResponseMissing',
     'Invalid product.': 'invalidProduct',
     'Could not create the payment. Please try again or contact support.': 'createPaymentFailed',
+    'Could not create the payment order. Please try again or contact support.': 'createPaymentFailed',
+    'This payment option is temporarily unavailable. Please contact support.': 'temporarilyUnavailable',
+    'Choose a payment screenshot to upload.': 'proofFileInvalid',
+    'Upload a valid PNG, JPEG, or WebP payment screenshot.': 'proofFileInvalid',
+    'Payment screenshot must be 5 MB or smaller.': 'proofFileInvalid',
+    'Could not send your payment proof. Please try again or contact support.': 'proofUploadFailed',
+    'Your payment proof is already being sent.': 'sendingReceipt',
+    'ABA payment link is invalid.': 'paymentLinkInvalid',
+    'Payment proof notifications are not configured. Please contact support.': 'paymentNotConfigured',
   };
   let language = localStorage.getItem('wiksalstore-language') === 'en' ? 'en' : 'km';
   const t = (key) => TEXT[language][key] || TEXT.en[key] || key;
@@ -221,11 +221,12 @@
   let sel = null;            // { category, item, platform }
   let account = null;        // verified profile
   let order = null;
+  let checkoutOrderId = null;
+  let paymentAttempted = false;
   let verifyToken = 0;
   let debounce = null;
-  let pollT = null, countT = null, doneT = null;
   let lastError = null;
-  let doneSeconds = 0;
+  let proofPreviewUrl = null;
 
   /* ---------------- toast ---------------- */
   function toast(msg) {
@@ -270,16 +271,9 @@
     else setHint(t('lookupHintTelegram'));
 
     if (order) {
-      $('#qrAmount').textContent = money(order.amount);
-      $('#waitText').textContent = t('waitingPayment');
+      $('#qrAmount').textContent = Number(order.amount).toFixed(2);
+      $('#qrCurrency').textContent = order.currency;
     }
-  }
-
-  function updateDoneProgress() {
-    const remaining = Math.max(0, 60 - doneSeconds);
-    $('#doneCount').textContent = remaining
-      ? format('processingSeconds', { seconds: remaining })
-      : t('processingAlmostDone');
   }
 
   function applyLanguage(nextLanguage) {
@@ -302,7 +296,6 @@
       $('#errTitle').textContent = t(lastError.title);
       $('#errMsg').textContent = localize(lastError.message);
     }
-    if (!$('#v3').hidden) updateDoneProgress();
     placeAll();
   }
 
@@ -355,7 +348,12 @@
       b.style.setProperty('--mx', e.clientX - r.left + 'px');
       b.style.setProperty('--my', e.clientY - r.top + 'px');
     });
-    b.addEventListener('click', () => openCheckout(cat, it, platform));
+    if (it.paymentAvailable) b.addEventListener('click', () => openCheckout(cat, it, platform));
+    else {
+      b.disabled = true;
+      b.classList.add('unavailable');
+      $('.c-buy', b).textContent = t('temporarilyUnavailable');
+    }
     return b;
   }
 
@@ -372,6 +370,8 @@
   /* ---------------- checkout sheet ---------------- */
   function show(id) {
     ['v1', 'v2', 'v3', 'vErr'].forEach((v) => { const el = $('#' + v); el.hidden = v !== id; });
+    $('#uname').disabled = paymentAttempted;
+    $('#verifyBtn').disabled = paymentAttempted;
     if (id !== 'vErr') lastError = null;
     const idx = { v1: 0, v2: 1, v3: 2, vErr: 1 }[id];
     $$('#stepper .st').forEach((s, i) => { s.classList.toggle('active', i === idx); s.classList.toggle('done', i < idx || (id === 'v3' && i === 2)); });
@@ -382,7 +382,8 @@
   function openCheckout(cat, it, platform) {
     sel = { category: cat, item: it, platform };
     account = null; order = null;
-    stopTimers();
+    checkoutOrderId = null;
+    paymentAttempted = false;
     $('#olCat').textContent = categoryName(cat);
     $('#sheetTitle').textContent = itemName(cat, it);
     $('#olPrice').textContent = money(it.price);
@@ -403,7 +404,6 @@
     const ov = $('#overlay');
     if (ov.hidden) return;
     ov.classList.add('closing');
-    stopTimers();
     setTimeout(() => { ov.hidden = true; ov.classList.remove('closing'); document.body.style.overflow = ''; }, 250);
   }
   $('#closeBtn').addEventListener('click', closeCheckout);
@@ -498,25 +498,39 @@
   });
 
   /* ---------------- payment ---------------- */
-  function stopTimers() { clearInterval(pollT); clearInterval(countT); clearInterval(doneT); pollT = countT = doneT = null; }
-
   $('#toPay').addEventListener('click', () => createOrder());
-  $('#backBtn').addEventListener('click', () => { stopTimers(); order = null; show('v1'); });
-  $('#errRetry').addEventListener('click', () => { stopTimers(); order = null; show('v1'); });
+  $('#backBtn').addEventListener('click', () => {
+    resetProof();
+    order = null;
+    checkoutOrderId = null;
+    paymentAttempted = false;
+    show('v1');
+  });
+  $('#errRetry').addEventListener('click', () => { order = null; show('v1'); });
 
   async function createOrder() {
     if (!account) return;
     const btn = $('#toPay');
     btn.disabled = true; btn.textContent = t('creatingPayment');
     try {
+      if (!checkoutOrderId) checkoutOrderId = `WS-${newOrderUuid()}`;
+      paymentAttempted = true;
+      $('#uname').disabled = true;
+      $('#verifyBtn').disabled = true;
       const r = await fetch('/api/orders', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category: sel.category, itemId: sel.item.id, username: account.username }),
+        body: JSON.stringify({
+          category: sel.category,
+          itemId: sel.item.id,
+          username: account.username,
+          currency: 'USD',
+          orderId: checkoutOrderId,
+        }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || t('createPaymentFailed'));
       order = data;
-      startPayment();
+      await startPayment();
     } catch (e) {
       showError('paymentStartFailed', e.message === 'Failed to fetch' ? t('networkRetry') : localize(e.message));
     } finally {
@@ -524,51 +538,110 @@
     }
   }
 
-  function startPayment() {
+  function newOrderUuid() {
+    if (crypto.randomUUID) return crypto.randomUUID();
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+
+  async function startPayment() {
     show('v2');
-    $('#qrAmount').textContent = money(order.amount);
-    const img = $('#qrImg');
-    img.classList.remove('show');
-    $('#qrBox').classList.remove('ready');
-    img.onload = () => { img.classList.add('show'); $('#qrBox').classList.add('ready'); };
-    img.src = order.qrImage;
-    $('#waitText').textContent = t('waitingPayment');
+    resetProof();
+    $('#qrAmount').textContent = Number(order.amount).toFixed(2);
+    $('#qrCurrency').textContent = order.currency;
+    $('#qrOrderId').textContent = order.id;
+    const qrBox = $('#qrBox');
+    const qrError = $('#qrError');
+    qrBox.classList.remove('ready', 'failed');
+    qrError.hidden = true;
 
-    const tick = () => {
-      const left = Math.max(0, Math.round((order.expiresAt - Date.now()) / 1000));
-      $('#qrTimer').textContent = `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`;
-      $('.timer').classList.toggle('low', left <= 60);
-      if (left === 0) {
-        stopTimers();
-        showError('qrExpired', format('qrExpiredMessage', { order: order.id }));
-      }
-    };
-    tick();
-    countT = setInterval(tick, 1000);
-    pollT = setInterval(poll, 3000);
-  }
-
-  let polling = false;
-  async function poll() {
-    if (polling || !order) return;
-    polling = true;
     try {
-      const r = await fetch(`/api/orders/${encodeURIComponent(order.id)}/status`);
-      const d = await r.json();
-      if (d.status === 'paid') { stopTimers(); showDone(); }
-      else if (d.status === 'expired') {
-        stopTimers();
-        showError('qrExpired', t('tryNewPayment'));
+      const paymentLink = new URL(order.paymentLink);
+      if (paymentLink.protocol !== 'https:' || paymentLink.hostname !== 'pay.ababank.com' || paymentLink.username || paymentLink.password) {
+        throw new Error('ABA payment link is invalid.');
       }
-    } catch { /* network blip – next tick retries */ }
-    polling = false;
+      $('#paymentLink').href = paymentLink.href;
+    } catch {
+      showError('paymentStartFailed', 'ABA payment link is invalid.');
+      return;
+    }
+
+    const qrImagePath = order.paymentQrImage;
+    if (typeof qrImagePath !== 'string' || !/^\/img\/aba-khqr-t(?:3|6|12)\.png$/.test(qrImagePath)) {
+      qrBox.classList.add('failed');
+      qrError.textContent = t('qrImageLoadFailed');
+      qrError.hidden = false;
+      return;
+    }
+
+    const qrImage = $('#khqrImage');
+    qrImage.onload = () => qrBox.classList.add('ready');
+    qrImage.onerror = () => {
+      qrBox.classList.add('failed');
+      qrError.textContent = t('qrImageLoadFailed');
+      qrError.hidden = false;
+    };
+    qrImage.src = qrImagePath;
+    if (qrImage.complete && qrImage.naturalWidth > 0) qrBox.classList.add('ready');
   }
 
-  $('#downloadQr').addEventListener('click', () => {
-    const a = document.createElement('a');
-    a.href = order.qrImage; a.download = `wiksalstore-${order.id}.png`;
-    document.body.appendChild(a); a.click(); a.remove();
-    toast(t('savedQr'));
+  function resetProof() {
+    if (proofPreviewUrl) URL.revokeObjectURL(proofPreviewUrl);
+    proofPreviewUrl = null;
+    $('#proofFile').value = '';
+    $('#proofPreview').hidden = true;
+    $('#proofPreviewImage').removeAttribute('src');
+    $('#proofFileName').textContent = '';
+    $('#proofError').hidden = true;
+    $('#proofError').textContent = '';
+    $('#submitProof').disabled = true;
+    $('#submitProof').textContent = t('submitReceipt');
+  }
+
+  $('#proofFile').addEventListener('change', () => {
+    const file = $('#proofFile').files[0];
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      resetProof();
+      $('#proofError').textContent = t('proofFileInvalid');
+      $('#proofError').hidden = false;
+      return;
+    }
+    if (proofPreviewUrl) URL.revokeObjectURL(proofPreviewUrl);
+    proofPreviewUrl = URL.createObjectURL(file);
+    $('#proofPreviewImage').src = proofPreviewUrl;
+    $('#proofFileName').textContent = file.name;
+    $('#proofPreview').hidden = false;
+    $('#proofError').hidden = true;
+    $('#submitProof').disabled = false;
+  });
+
+  $('#submitProof').addEventListener('click', async () => {
+    const file = $('#proofFile').files[0];
+    if (!file || !order) return;
+    const button = $('#submitProof');
+    button.disabled = true;
+    button.textContent = t('sendingReceipt');
+    $('#proofError').hidden = true;
+    try {
+      const response = await fetch(`/api/orders/${encodeURIComponent(order.id)}/proof`, {
+        method: 'POST',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || t('proofUploadFailed'));
+      order.status = result.status;
+      showDone();
+    } catch (e) {
+      $('#proofError').textContent = e.message === 'Failed to fetch' ? t('networkRetry') : localize(e.message);
+      $('#proofError').hidden = false;
+      button.disabled = false;
+      button.textContent = t('submitReceipt');
+    }
   });
 
   function showError(title, message) {
@@ -582,19 +655,9 @@
     $('#rId').textContent = order.id;
     $('#rItem').textContent = itemName(sel.category, sel.item);
     $('#rAcc').textContent = '@' + account.username;
-    $('#rAmt').textContent = money(order.amount);
+    $('#rAmt').textContent = money(order.amount, order.currency);
     show('v3');
     confetti();
-    const total = 60; doneSeconds = 0;
-    const bar = $('#doneBar'), cnt = $('#doneCount');
-    bar.style.width = '0%';
-    doneT = setInterval(() => {
-      doneSeconds++;
-      bar.style.width = Math.min(100, (doneSeconds / total) * 100) + '%';
-      updateDoneProgress();
-      if (doneSeconds >= total) clearInterval(doneT);
-    }, 1000);
-    updateDoneProgress();
   }
 
   /* ---------------- confetti ---------------- */
