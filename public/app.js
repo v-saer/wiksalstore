@@ -69,7 +69,7 @@
       buyNow: 'Buy now',
       perfectToTry: 'Perfect to try it out',
       saveMoreMonthly: 'Save more every month',
-      bestPriceMonthly: 'Best price per month',
+      bestPriceYearly: 'Best price per year',
       telegramUsername: 'Telegram username',
       enterUsername: 'Enter username',
       exampleDurov: 'e.g. durov',
@@ -155,7 +155,7 @@
       buyNow: 'ទិញឥឡូវនេះ',
       perfectToTry: 'ល្អសម្រាប់សាកល្បង',
       saveMoreMonthly: 'សន្សំច្រើនក្នុងមួយខែ',
-      bestPriceMonthly: 'តម្លៃល្អបំផុតក្នុងមួយឆ្នាំ',
+      bestPriceYearly: 'តម្លៃល្អបំផុតក្នុងមួយឆ្នាំ',
       telegramUsername: 'ឈ្មោះអ្នកប្រើ Telegram',
       enterUsername: 'បញ្ចូលឈ្មោះអ្នកប្រើ',
       exampleDurov: 'ឧ. durov123',
@@ -195,7 +195,10 @@
     'This payment option is temporarily unavailable. Please contact support.': 'temporarilyUnavailable',
     'Choose a payment screenshot to upload.': 'proofFileInvalid',
     'Upload a valid PNG, JPEG, or WebP payment screenshot.': 'proofFileInvalid',
+    'Upload a valid PNG, JPEG, or WebP payment screenshot smaller than 5 MB.': 'proofFileInvalid',
     'Payment screenshot must be 5 MB or smaller.': 'proofFileInvalid',
+    'Invalid payment proof upload.': 'proofUploadFailed',
+    'Uploaded payment screenshot could not be retrieved.': 'proofUploadFailed',
     'Could not send your payment proof. Please try again or contact support.': 'proofUploadFailed',
     'Your payment proof is already being sent.': 'sendingReceipt',
     'ABA payment link is invalid.': 'paymentLinkInvalid',
@@ -332,7 +335,7 @@
     let sub = '';
     const m = TG_META[it.id];
     html = ICON.tg;
-    sub = t(({ 'Perfect to try it out': 'perfectToTry', 'Save more every month': 'saveMoreMonthly', 'Best price per month': 'bestPriceMonthly' })[m.sub]);
+    sub = t(({ 'Perfect to try it out': 'perfectToTry', 'Save more every month': 'saveMoreMonthly', 'Best price per year': 'bestPriceYearly' })[m.sub]);
     if (m.per) {
       const tag = m.per === 'POPULAR' ? t('popular') : m.per === 'RECOMMEND' ? t('recommended') : t('bestValue');
       badge = `<span class="badge${m.per === 'POPULAR' ? ' hot' : ''}">${tag}</span>`;
@@ -627,11 +630,22 @@
     button.textContent = t('sendingReceipt');
     $('#proofError').hidden = true;
     try {
-      const response = await fetch(`/api/orders/${encodeURIComponent(order.id)}/proof`, {
-        method: 'POST',
-        headers: { 'Content-Type': file.type },
-        body: file,
-      });
+      const proofUrl = `/api/orders/${encodeURIComponent(order.id)}/proof`;
+      let response;
+      if (cfg.proofUploadMode === 'blob') {
+        const blob = await window.uploadPaymentProof(file, order.id);
+        response = await fetch(proofUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pathname: blob.pathname }),
+        });
+      } else {
+        response = await fetch(proofUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': file.type },
+          body: file,
+        });
+      }
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || t('proofUploadFailed'));
       order.status = result.status;

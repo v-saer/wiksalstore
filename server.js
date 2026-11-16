@@ -1,13 +1,16 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
-const fs = require('fs');
 const crypto = require('crypto');
+const { del: deleteBlob, get: getBlob } = require('@vercel/blob');
+const { handleUpload } = require('@vercel/blob/client');
+const { createOrderStore } = require('./lib/order-store');
 
 /* ------------------------------------------------------------------ */
 /*  Config                                                             */
 /* ------------------------------------------------------------------ */
 const PORT = process.env.PORT || 3000;
+const IS_VERCEL = Boolean(process.env.VERCEL);
 const PAYLINK_API_BASE_URL = process.env.PAYLINK_API_BASE_URL || '';
 const PAYLINK_API_KEY = process.env.PAYLINK_API_KEY || '';
 const PAYLINK_WEBHOOK_SECRET = process.env.PAYLINK_WEBHOOK_SECRET || '';
@@ -16,8 +19,12 @@ const ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID || '';
 const QR_TTL_MS = 15 * 60 * 1000;
 const KHR_PER_USD = 4000;
 const STORE_NAME = '';
-const ORDERS_FILE = path.join(__dirname, 'data', 'orders.json');
+const MAX_PROOF_SIZE = 5 * 1024 * 1024;
+const PROOF_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+const BLOB_READ_WRITE_TOKEN = process.env.BLOB_READ_WRITE_TOKEN || '';
+const USE_BLOB_UPLOAD = IS_VERCEL || Boolean(BLOB_READ_WRITE_TOKEN);
 const SUPPORT = 'nhsalnghahh';
+const orderStore = createOrderStore();
 const PAYMENT_LINKS = {
   t3: 'https://pay.ababank.com/oRF8/r1vh4twz',
   t6: 'https://pay.ababank.com/oRF8/vyl8jywz',
@@ -44,38 +51,9 @@ const CATALOG = {
   },
 };
 
-/* ------------------------------------------------------------------ */
-/*  Orders file (orders.json) – serialized, atomic writes              */
-/* ------------------------------------------------------------------ */
-let orders = [];
-try {
-  orders = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
-  if (!Array.isArray(orders)) orders = [];
-} catch { orders = []; }
-
-let writing = Promise.resolve();
-const proofSubmissions = new Set();
-function saveOrders() {
-  writing = writing.then(async () => {
-    const tmp = ORDERS_FILE + '.tmp';
-    await fs.promises.mkdir(path.dirname(ORDERS_FILE), { recursive: true });
-    await fs.promises.writeFile(tmp, JSON.stringify(orders, null, 2));
-    await fs.promises.rename(tmp, ORDERS_FILE);
-  }).catch((e) => console.error('saveOrders failed:', e.message));
-  return writing;
-}
-const findOrder = (id) => orders.find((o) => o.id === id);
 const paymentAvailableForItem = (itemId) =>
-  !!PAYMENT_LINKS[itemId] && !!BOT_TOKEN && !!ADMIN_CHAT_ID;
-function parsePaymentProof(req, res, next) {
-  express.raw({ type: ['image/png', 'image/jpeg', 'image/webp'], limit: '5mb' })(req, res, (error) => {
-    if (!error) return next();
-    if (error.type === 'entity.too.large') {
-      return res.status(413).json({ error: 'Payment screenshot must be 5 MB or smaller.' });
-    }
-    return res.status(400).json({ error: 'Could not read the payment screenshot.' });
-  });
-}
+  !!PAYMENT_LINKS[itemId] && !!BOT_TOKEN && !!ADMIN_CHAT_ID &&
+  (!USE_BLOB_UPLOAD || !!BLOB_READ_WRITE_TOKEN) && orderStore.isAvailable;
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -83,20 +61,22 @@ function parsePaymentProof(req, res, next) {
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const UA = 'Mozilla/5.0 (compatible; WiksalStore/1.0)';
 
-// tiny in-memory rate limiter
-const hits = new Map();
 function rateLimit(max, windowMs) {
-  return (req, res, next) => {
-    const key = req.ip + req.path;
-    const now = Date.now();
-    const arr = (hits.get(key) || []).filter((t) => now - t < windowMs);
-    arr.push(now);
-    hits.set(key, arr);
-    if (arr.length > max) return res.status(429).json({ error: 'Too many requests, please slow down.' });
-    next();
+  return async (req, res, next) => {
+    const key = crypto.createHash('sha256').update(`${req.ip}:${req.path}`).digest('hex');
+    try {
+      const count = await orderStore.consumeRateLimit(key, windowMs);
+      if (count > max) return res.status(429).json({ error: 'Too many requests, please slow down.' });
+      next();
+    } catch (error) {
+      next(error);
+    }
   };
 }
-setInterval(() => hits.clear(), 10 * 60 * 1000).unref();
+
+function asyncRoute(handler) {
+  return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
+}
 
 /* ------------------------------------------------------------------ */
 /*  Telegram username lookup                                           */
@@ -308,13 +288,35 @@ async function alertPaymentProof(order, image, mimeType) {
   }
 }
 
+function validPaymentImage(image, mimeType) {
+  const isPng = mimeType === 'image/png' &&
+    image.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  const isJpeg = mimeType === 'image/jpeg' &&
+    image[0] === 0xff && image[1] === 0xd8 && image[2] === 0xff;
+  const isWebp = mimeType === 'image/webp' &&
+    image.toString('ascii', 0, 4) === 'RIFF' &&
+    image.toString('ascii', 8, 12) === 'WEBP';
+  return isPng || isJpeg || isWebp;
+}
+
+function parseLocalPaymentProof(req, res, next) {
+  if (USE_BLOB_UPLOAD) return next();
+  express.raw({ type: PROOF_MIME_TYPES, limit: '5mb' })(req, res, (error) => {
+    if (!error) return next();
+    if (error.type === 'entity.too.large') {
+      return res.status(413).json({ error: 'Payment screenshot must be 5 MB or smaller.' });
+    }
+    return res.status(400).json({ error: 'Could not read the payment screenshot.' });
+  });
+}
+
 async function markPaid(order, txn) {
   if (order.status === 'paid') return;
   order.status = 'paid';
   order.paidAt = new Date().toISOString();
   if (txn) order.transaction = { hash: txn.hash || null, from: txn.fromAccountId || txn.from || null };
   order.botNotified = await alertBot(order);
-  await saveOrders();
+  await orderStore.saveOrder(order);
 }
 
 /* ------------------------------------------------------------------ */
@@ -337,7 +339,7 @@ app.use((req, res, next) => {
   }
   next();
 });
-app.post('/api/webhook', express.raw({ type: 'application/json', limit: '32kb' }), async (req, res) => {
+app.post('/api/webhook', express.raw({ type: 'application/json', limit: '32kb' }), asyncRoute(async (req, res) => {
   if (!PAYLINK_WEBHOOK_SECRET) return res.status(503).json({ ok: false, error: 'Webhook is not configured.' });
   if (!Buffer.isBuffer(req.body)) return res.status(400).json({ ok: false, error: 'Invalid webhook body.' });
 
@@ -364,18 +366,23 @@ app.post('/api/webhook', express.raw({ type: 'application/json', limit: '32kb' }
   const orderId = typeof eventData.orderId === 'string'
     ? eventData.orderId
     : typeof payload.orderId === 'string' ? payload.orderId : '';
-  const order = orders.find((entry) =>
-    entry.provider === 'aba-payway' &&
-    (entry.id === orderId || (transactionId && entry.payment && entry.payment.tranId === transactionId))
-  );
+  const order = await orderStore.findPaywayOrder(orderId, transactionId);
   if (!order) return res.status(404).json({ ok: false, error: 'Order not found.' });
   if (payload.status === 'PAID' && order.status !== 'paid') {
     await markPaid(order);
   }
   res.json({ ok: true, status: order.status });
-});
+}));
 app.use(express.json({ limit: '10kb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+if (!IS_VERCEL) app.use(express.static(path.join(__dirname, 'public')));
+
+app.use('/api', (req, res, next) => {
+  if (req.path === '/config') return next();
+  if (!orderStore.isAvailable) {
+    return res.status(503).json({ error: 'Order storage is not configured. Please contact support.' });
+  }
+  next();
+});
 
 app.get('/api/config', (req, res) => {
   const catalog = {};
@@ -386,10 +393,16 @@ app.get('/api/config', (req, res) => {
       items: Object.entries(c.items).map(([id, i]) => ({ id, ...i, paymentAvailable: paymentAvailableForItem(id) })),
     };
   }
-  res.json({ support: SUPPORT, catalog, storeName: STORE_NAME, khrPerUsd: KHR_PER_USD });
+  res.json({
+    support: SUPPORT,
+    catalog,
+    storeName: STORE_NAME,
+    khrPerUsd: KHR_PER_USD,
+    proofUploadMode: USE_BLOB_UPLOAD ? 'blob' : 'local',
+  });
 });
 
-app.get('/api/telegram/:username', rateLimit(30, 60_000), async (req, res) => {
+app.get('/api/telegram/:username', rateLimit(30, 60_000), asyncRoute(async (req, res) => {
   const u = req.params.username.trim().replace(/^@/, '');
   if (!/^[A-Za-z0-9_]{5,32}$/.test(u)) return res.status(400).json({ error: 'Telegram usernames are 5–32 letters, numbers or underscores.' });
   try {
@@ -399,9 +412,9 @@ app.get('/api/telegram/:username', rateLimit(30, 60_000), async (req, res) => {
   } catch (e) {
     res.status(502).json({ error: 'Could not reach Telegram right now. Please try again.' });
   }
-});
+}));
 
-app.post('/api/orders', rateLimit(10, 60_000), async (req, res) => {
+app.post('/api/orders', rateLimit(10, 60_000), asyncRoute(async (req, res) => {
   let orderId = '';
   try {
     const { category, itemId, username, currency, orderId: requestedOrderId } = req.body || {};
@@ -415,6 +428,9 @@ app.post('/api/orders', rateLimit(10, 60_000), async (req, res) => {
     if (!BOT_TOKEN || !ADMIN_CHAT_ID) {
       return res.status(503).json({ error: 'Payment proof notifications are not configured. Please contact support.' });
     }
+    if (USE_BLOB_UPLOAD && !BLOB_READ_WRITE_TOKEN) {
+      return res.status(503).json({ error: 'Payment screenshot storage is not configured. Please contact support.' });
+    }
     if (currency !== 'USD') {
       return res.status(400).json({ error: 'Only USD payments are available.' });
     }
@@ -427,7 +443,7 @@ app.post('/api/orders', rateLimit(10, 60_000), async (req, res) => {
     const account = /^[A-Za-z0-9_]{5,32}$/.test(clean) ? await lookupTelegram(clean) : null;
     if (!account) return res.status(400).json({ error: 'Account could not be verified.' });
 
-    const existing = findOrder(orderId);
+    const existing = await orderStore.getOrder(orderId);
     if (existing) {
       if (
         existing.provider !== 'khqr-manual' || existing.category !== category ||
@@ -464,80 +480,174 @@ app.post('/api/orders', rateLimit(10, 60_000), async (req, res) => {
       provider: 'khqr-manual',
     };
 
-    orders.push(order);
-    await saveOrders();
+    const created = await orderStore.createOrder(order);
+    if (!created) {
+      const racedOrder = await orderStore.getOrder(orderId);
+      if (
+        racedOrder &&
+        racedOrder.provider === 'khqr-manual' &&
+        racedOrder.category === category &&
+        racedOrder.itemId === itemId &&
+        racedOrder.currency === currency &&
+        racedOrder.account.username === account.username &&
+        ['pending', 'proof_submitted'].includes(racedOrder.status)
+      ) {
+        return res.json(manualPaymentResponse(racedOrder));
+      }
+      return res.status(409).json({ error: 'Order ID has already been used.' });
+    }
     res.json(manualPaymentResponse(order));
   } catch {
     console.error('Payment order creation failed for order', orderId || '(invalid ID)');
     res.status(502).json({ error: 'Could not create the payment order. Please try again or contact support.' });
   }
-});
+}));
+
+app.post(
+  '/api/orders/:id/proof-upload',
+  rateLimit(5, 10 * 60_000),
+  asyncRoute(async (req, res) => {
+    if (!USE_BLOB_UPLOAD || !BLOB_READ_WRITE_TOKEN) {
+      return res.status(503).json({ error: 'Payment screenshot storage is not configured. Please contact support.' });
+    }
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      return res.status(400).json({ error: 'Invalid payment proof upload request.' });
+    }
+
+    const routeOrderId = req.params.id;
+    const result = await handleUpload({
+      body: req.body,
+      request: req,
+      onBeforeGenerateToken: async (pathname, clientPayload) => {
+        const order = await orderStore.getOrder(routeOrderId);
+        if (!order || order.provider !== 'khqr-manual' || order.status !== 'pending') {
+          throw new Error('This order cannot accept a payment proof.');
+        }
+        if (
+          clientPayload !== routeOrderId ||
+          !/^WS-[A-Za-z0-9-]{16,50}$/.test(routeOrderId) ||
+          !new RegExp(`^payment-proofs/${routeOrderId}/proof\\.(png|jpg|webp)$`).test(pathname)
+        ) {
+          throw new Error('Invalid payment proof upload metadata.');
+        }
+        return {
+          allowedContentTypes: PROOF_MIME_TYPES,
+          maximumSizeInBytes: MAX_PROOF_SIZE,
+          addRandomSuffix: true,
+          ttlDays: 1,
+          tokenPayload: routeOrderId,
+        };
+      },
+    });
+    res.json(result);
+  })
+);
 
 app.post(
   '/api/orders/:id/proof',
   rateLimit(5, 10 * 60_000),
-  parsePaymentProof,
-  async (req, res) => {
-    const order = findOrder(req.params.id);
+  parseLocalPaymentProof,
+  asyncRoute(async (req, res) => {
+    const order = await orderStore.getOrder(req.params.id);
     if (!order || order.provider !== 'khqr-manual') return res.status(404).json({ error: 'Order not found.' });
+    const pathname = req.body && req.body.pathname;
+    const blobPathPattern = new RegExp(`^payment-proofs/${order.id}/proof(?:-[^/]+)?\\.(png|jpg|webp)$`);
+    if (USE_BLOB_UPLOAD && (typeof pathname !== 'string' || !blobPathPattern.test(pathname))) {
+      return res.status(400).json({ error: 'Invalid payment proof upload.' });
+    }
+    if (!USE_BLOB_UPLOAD && (!Buffer.isBuffer(req.body) || req.body.length === 0)) {
+      return res.status(400).json({ error: 'Choose a payment screenshot to upload.' });
+    }
     if (order.status === 'proof_submitted') {
+      if (USE_BLOB_UPLOAD) await deleteBlob(pathname, { access: 'private' });
       return res.json({ id: order.id, status: order.status, submitted: true });
     }
     if (order.status !== 'pending') return res.status(409).json({ error: 'This order cannot accept a payment proof.' });
-    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
-      return res.status(400).json({ error: 'Choose a payment screenshot to upload.' });
-    }
-
-    const mimeType = req.headers['content-type'];
-    const isPng = mimeType === 'image/png' && req.body.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-    const isJpeg = mimeType === 'image/jpeg' && req.body[0] === 0xff && req.body[1] === 0xd8 && req.body[2] === 0xff;
-    const isWebp = mimeType === 'image/webp' &&
-      req.body.toString('ascii', 0, 4) === 'RIFF' &&
-      req.body.toString('ascii', 8, 12) === 'WEBP';
-    if (!isPng && !isJpeg && !isWebp) {
-      return res.status(400).json({ error: 'Upload a valid PNG, JPEG, or WebP payment screenshot.' });
-    }
     if (!BOT_TOKEN || !ADMIN_CHAT_ID) {
       return res.status(503).json({ error: 'Payment proof notifications are not configured. Please contact support.' });
     }
-    if (proofSubmissions.has(order.id)) {
+    if (USE_BLOB_UPLOAD && !BLOB_READ_WRITE_TOKEN) {
+      return res.status(503).json({ error: 'Payment screenshot storage is not configured. Please contact support.' });
+    }
+
+    const proofLock = await orderStore.claimProofSubmission(order.id);
+    if (!proofLock) {
       return res.status(409).json({ error: 'Your payment proof is already being sent.' });
     }
 
-    proofSubmissions.add(order.id);
     try {
-      await alertPaymentProof(order, req.body, mimeType);
+      let image;
+      let mimeType;
+      if (USE_BLOB_UPLOAD) {
+        const storedBlob = await getBlob(pathname, { access: 'private' });
+        if (!storedBlob || storedBlob.statusCode !== 200) {
+          return res.status(400).json({ error: 'Uploaded payment screenshot could not be retrieved.' });
+        }
+        if (
+          storedBlob.blob.size > MAX_PROOF_SIZE ||
+          !PROOF_MIME_TYPES.includes(storedBlob.blob.contentType)
+        ) {
+          return res.status(400).json({ error: 'Upload a valid PNG, JPEG, or WebP payment screenshot smaller than 5 MB.' });
+        }
+        mimeType = storedBlob.blob.contentType;
+        image = Buffer.from(await new Response(storedBlob.stream).arrayBuffer());
+        if (image.length !== storedBlob.blob.size) {
+          return res.status(400).json({ error: 'Uploaded payment screenshot could not be retrieved.' });
+        }
+      } else {
+        image = req.body;
+        mimeType = req.headers['content-type'];
+        if (image.length > MAX_PROOF_SIZE) {
+          return res.status(413).json({ error: 'Payment screenshot must be 5 MB or smaller.' });
+        }
+      }
+      if (!validPaymentImage(image, mimeType)) {
+        return res.status(400).json({ error: 'Upload a valid PNG, JPEG, or WebP payment screenshot.' });
+      }
+
+      await alertPaymentProof(order, image, mimeType);
       order.status = 'proof_submitted';
       order.proofSubmittedAt = new Date().toISOString();
       order.proofBotNotified = true;
-      await saveOrders();
+      await orderStore.saveOrder(order);
       res.json({ id: order.id, status: order.status, submitted: true });
-    } catch (e) {
-      console.error(`Payment proof alert failed for order ${order.id}:`, e.message);
+    } catch (error) {
+      console.error(`Payment proof alert failed for order ${order.id}:`, error.message);
       res.status(502).json({ error: 'Could not send your payment proof. Please try again or contact support.' });
     } finally {
-      proofSubmissions.delete(order.id);
+      if (USE_BLOB_UPLOAD) {
+        try {
+          await deleteBlob(pathname, { access: 'private' });
+        } catch (error) {
+          console.error(`Could not delete payment proof Blob for order ${order.id}:`, error.message);
+        }
+      }
+      try {
+        await orderStore.releaseProofSubmission(order.id, proofLock);
+      } catch (error) {
+        console.error(`Could not release payment proof lock for order ${order.id}:`, error.message);
+      }
     }
-  }
+  })
 );
 
-app.get('/api/orders/:id/status', rateLimit(120, 60_000), async (req, res) => {
-  const order = findOrder(req.params.id);
+app.get('/api/orders/:id/status', rateLimit(120, 60_000), asyncRoute(async (req, res) => {
+  const order = await orderStore.getOrder(req.params.id);
   if (!order) return res.status(404).json({ error: 'Order not found.' });
   if (order.status === 'pending' && Date.now() > order.expiresAt) {
     order.status = 'expired';
-    await saveOrders();
+    await orderStore.saveOrder(order);
   }
   res.json({ id: order.id, status: order.status, paidAt: order.paidAt });
-});
+}));
 
-app.post('/api/orders/:id/check', rateLimit(30, 60_000), async (req, res) => {
-  const order = findOrder(req.params.id);
+app.post('/api/orders/:id/check', rateLimit(30, 60_000), asyncRoute(async (req, res) => {
+  const order = await orderStore.getOrder(req.params.id);
   if (!order || order.provider !== 'aba-payway') return res.status(404).json({ error: 'Order not found.' });
   if (order.status === 'paid') return res.json({ id: order.id, status: 'PAID', paid: true });
   if (Date.now() > order.expiresAt) {
     order.status = 'expired';
-    await saveOrders();
+    await orderStore.saveOrder(order);
     return res.json({ id: order.id, status: 'EXPIRED', paid: false });
   }
   if (!order.payment || !order.payment.tranId) {
@@ -557,10 +667,20 @@ app.post('/api/orders/:id/check', rateLimit(30, 60_000), async (req, res) => {
   } catch {
     res.status(502).json({ error: 'Could not verify the payment right now.' });
   }
+}));
+
+app.use((error, req, res, next) => {
+  console.error('API request failed:', error.message);
+  if (res.headersSent) return next(error);
+  res.status(503).json({ error: 'Service temporarily unavailable. Please try again.' });
 });
 
-app.listen(PORT, () => {
-  console.log(`WIKSALSTORE running → http://localhost:${PORT}`);
-  if (!PAYLINK_API_BASE_URL || !PAYLINK_API_KEY) console.warn('! Legacy ABA PayWay checks are not configured.');
-  if (!BOT_TOKEN || !ADMIN_CHAT_ID) console.warn('! Telegram bot not configured – payment proof alerts disabled.');
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`WIKSALSTORE running → http://localhost:${PORT}`);
+    if (!PAYLINK_API_BASE_URL || !PAYLINK_API_KEY) console.warn('! Legacy ABA PayWay checks are not configured.');
+    if (!BOT_TOKEN || !ADMIN_CHAT_ID) console.warn('! Telegram bot not configured – payment proof alerts disabled.');
+  });
+}
+
+module.exports = app;

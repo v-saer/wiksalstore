@@ -4,14 +4,25 @@
   "private": true,
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test",
+    "migrate:orders": "node scripts/migrate-orders.js",
+    "build:client": "node scripts/build-client.js"
   },
   "engines": {
     "node": "24.x"
   },
   "dependencies": {
+    "@upstash/redis": "^1.41.0",
     "@vercel/analytics": "^2.0.1",
+    "@vercel/blob": "^2.9.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "overrides": {
+    "zod": "^4.6.6"
   }
 }
