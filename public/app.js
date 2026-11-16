@@ -155,7 +155,7 @@
       buyNow: 'ទិញឥឡូវនេះ',
       perfectToTry: 'ល្អសម្រាប់សាកល្បង',
       saveMoreMonthly: 'សន្សំច្រើនក្នុងមួយខែ',
-      bestPriceMonthly: 'តម្លៃល្អបំផុតក្នុងមួយខែ',
+      bestPriceMonthly: 'តម្លៃល្អបំផុតក្នុងមួយឆ្នាំ',
       telegramUsername: 'ឈ្មោះអ្នកប្រើ Telegram',
       enterUsername: 'បញ្ចូលឈ្មោះអ្នកប្រើ',
       exampleDurov: 'ឧ. durov123',
@@ -213,7 +213,7 @@
   const TG_META = {
     t3:  { sub: 'Perfect to try it out', per: '' },
     t6:  { sub: 'Save more every month', per: 'RECOMMEND' },
-    t12: { sub: 'Best price per month',  per: 'BEST VALUE' },
+    t12: { sub: 'Best price per year',  per: 'BEST VALUE' },
   };
 
   let cfg = null;
